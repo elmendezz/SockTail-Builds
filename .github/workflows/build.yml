@@ -1,6 +1,7 @@
-# Version: 1
+# Version: 2
 # Changelog:
 # - v1: Creación inicial del workflow para compilar según las opciones de Make (compilaciones individuales y multiplataforma con llaves y Headscale).
+# - v2: Corrección para repositorios públicos. El flujo automático solo ejecuta 'make build' sin exponer llaves ni requerir secrets. Las llaves solo se inyectan en ejecuciones manuales seguras.
 
 name: Build and Release
 
@@ -24,11 +25,11 @@ on:
           - build-all-with-key
           - build-all-with-config
       custom_auth_key:
-        description: 'AUTH_KEY personalizada (Opcional, ignora el Secret si se llena)'
+        description: 'AUTH_KEY (Opcional - Uso personal)'
         required: false
         type: string
       custom_control_url:
-        description: 'CONTROL_URL personalizada (Opcional, ignora el Secret si se llena)'
+        description: 'CONTROL_URL (Opcional - Uso personal)'
         required: false
         type: string
 
@@ -46,28 +47,30 @@ jobs:
           go-version: '>=1.21'
           cache: true
 
-      - name: Determinar variables de entorno
+      - name: Determinar comando y variables
         id: vars
         run: |
-          # Asignar AUTH_KEY (prioridad: input manual > GitHub Secret)
-          if [ -n "${{ inputs.custom_auth_key }}" ]; then
-            echo "AUTH_KEY=${{ inputs.custom_auth_key }}" >> $GITHUB_ENV
-          else
-            echo "AUTH_KEY=${{ secrets.AUTH_KEY }}" >> $GITHUB_ENV
-          fi
-
-          # Asignar CONTROL_URL (prioridad: input manual > GitHub Secret)
-          if [ -n "${{ inputs.custom_control_url }}" ]; then
-            echo "CONTROL_URL=${{ inputs.custom_control_url }}" >> $GITHUB_ENV
-          else
-            echo "CONTROL_URL=${{ secrets.CONTROL_URL }}" >> $GITHUB_ENV
-          fi
-
-          # Determinar comando Make a ejecutar
           if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            # Ejecución manual: Usa las llaves introducidas o busca en los Secrets
             echo "MAKE_TARGET=${{ inputs.build_type }}" >> $GITHUB_ENV
+            
+            if [ -n "${{ inputs.custom_auth_key }}" ]; then
+              echo "AUTH_KEY=${{ inputs.custom_auth_key }}" >> $GITHUB_ENV
+            else
+              echo "AUTH_KEY=${{ secrets.AUTH_KEY }}" >> $GITHUB_ENV
+            fi
+
+            if [ -n "${{ inputs.custom_control_url }}" ]; then
+              echo "CONTROL_URL=${{ inputs.custom_control_url }}" >> $GITHUB_ENV
+            else
+              echo "CONTROL_URL=${{ secrets.CONTROL_URL }}" >> $GITHUB_ENV
+            fi
           else
-            echo "MAKE_TARGET=build-all-with-config" >> $GITHUB_ENV
+            # Ejecución automática (Push/PR en repo público):
+            # Solamente compilación pública sin credenciales
+            echo "MAKE_TARGET=build" >> $GITHUB_ENV
+            echo "AUTH_KEY=" >> $GITHUB_ENV
+            echo "CONTROL_URL=" >> $GITHUB_ENV
           fi
 
       - name: Ejecutar Compilación
