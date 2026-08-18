@@ -1,0 +1,87 @@
+# Version: 1
+# Changelog:
+# - v1: Creación inicial del workflow para compilar según las opciones de Make (compilaciones individuales y multiplataforma con llaves y Headscale).
+
+name: Build and Release
+
+on:
+  push:
+    branches: [ "main", "master" ]
+    tags: [ "v*" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'Tipo de Build a ejecutar'
+        required: true
+        default: 'build'
+        type: choice
+        options:
+          - build
+          - build-with-key
+          - build-with-config
+          - build-all-with-key
+          - build-all-with-config
+      custom_auth_key:
+        description: 'AUTH_KEY personalizada (Opcional, ignora el Secret si se llena)'
+        required: false
+        type: string
+      custom_control_url:
+        description: 'CONTROL_URL personalizada (Opcional, ignora el Secret si se llena)'
+        required: false
+        type: string
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      - name: Configurar entorno Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '>=1.21'
+          cache: true
+
+      - name: Determinar variables de entorno
+        id: vars
+        run: |
+          # Asignar AUTH_KEY (prioridad: input manual > GitHub Secret)
+          if [ -n "${{ inputs.custom_auth_key }}" ]; then
+            echo "AUTH_KEY=${{ inputs.custom_auth_key }}" >> $GITHUB_ENV
+          else
+            echo "AUTH_KEY=${{ secrets.AUTH_KEY }}" >> $GITHUB_ENV
+          fi
+
+          # Asignar CONTROL_URL (prioridad: input manual > GitHub Secret)
+          if [ -n "${{ inputs.custom_control_url }}" ]; then
+            echo "CONTROL_URL=${{ inputs.custom_control_url }}" >> $GITHUB_ENV
+          else
+            echo "CONTROL_URL=${{ secrets.CONTROL_URL }}" >> $GITHUB_ENV
+          fi
+
+          # Determinar comando Make a ejecutar
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "MAKE_TARGET=${{ inputs.build_type }}" >> $GITHUB_ENV
+          else
+            echo "MAKE_TARGET=build-all-with-config" >> $GITHUB_ENV
+          fi
+
+      - name: Ejecutar Compilación
+        run: |
+          echo "Ejecutando target: $MAKE_TARGET"
+          make $MAKE_TARGET AUTH_KEY="${{ env.AUTH_KEY }}" CONTROL_URL="${{ env.CONTROL_URL }}"
+
+      - name: Subir artefactos compilados
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries-${{ github.sha }}
+          path: |
+            bin/
+            dist/
+            *.exe
+            *.tar.gz
+          if-no-files-found: warn
